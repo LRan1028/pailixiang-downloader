@@ -29,10 +29,14 @@ import sys
 import time
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 API_BASE = "https://mapi.pailixiang.com/plx"
-# Constant baked into the site's JS bundle (a.A.appKey). ak is derived from it.
+# Constants baked into the site's JS bundle. ak is derived from appKey.
+# cv is the client build the API accepts; a stale value returns Code=9
+# ("有新版本需要刷新页面"). Re-extract both with tools/inspect_bundle.py.
 APP_KEY = "1e3a58fb24de413c9873542fc5667a25"
+CLIENT_VERSION = "169"
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
 
@@ -50,7 +54,7 @@ def gen_ak():
 
 
 def base_params():
-    return {"tt": "", "ct": 0, "cv": "151", "lang": "cn",
+    return {"tt": "", "ct": 0, "cv": CLIENT_VERSION, "lang": "cn",
             "pid": "albumview", "ak": gen_ak()}
 
 
@@ -138,14 +142,39 @@ def list_all_photos(view, page_size=80, verbose=True):
 
 
 def safe_name(s):
-    return re.sub(r'[\\/:*?"<>|]', "_", s).strip() or "album"
+    # Album titles sometimes contain a newline (two-line event name).
+    s = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", s)
+    s = re.sub(r"\s+", " ", s).strip().rstrip(".")
+    return s or "album"
 
 
-def download_all(photos, dest, verbose=True):
+def _fetch_photo(url, path):
+    last = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": UA, "Referer": "https://live.pailixiang.com/"})
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                content = resp.read()
+            if len(content) < 1024:
+                raise RuntimeError(f"suspiciously small ({len(content)} bytes)")
+            tmp = path + ".part"
+            with open(tmp, "wb") as f:
+                f.write(content)
+            os.replace(tmp, path)
+            return len(content)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(1.0 * (attempt + 1))
+    raise last
+
+
+def download_all(photos, dest, verbose=True, workers=8):
     os.makedirs(dest, exist_ok=True)
     photos = sorted(photos, key=lambda p: p.get("ShootTime") or "")
     width = max(3, len(str(len(photos))))
     used = {}
+    jobs = []
     ok, failed = 0, []
     for i, p in enumerate(photos, 1):
         url = p.get("DownloadImageUrl") or p.get("BigImageUrl") or p.get("ImageUrl")
@@ -156,28 +185,38 @@ def download_all(photos, dest, verbose=True):
             name = f"{root}_{used[name]}{ext}"
         else:
             used[name] = 0
-        fname = f"{str(i).zfill(width)}_{name}"
+        fname = f"{str(i).zfill(width)}_{safe_name(name)}"
         path = os.path.join(dest, fname)
         if os.path.exists(path) and os.path.getsize(path) > 1024:
             ok += 1
             if verbose:
-                print(f"[{i}/{len(photos)}] skip (exists) {fname}")
+                print(f"[{i}/{len(photos)}] skip (exists) {fname}", flush=True)
             continue
+        jobs.append((i, url, fname, path))
+
+    total = len(photos)
+
+    def work(job):
+        i, url, fname, path = job
         try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": UA, "Referer": "https://live.pailixiang.com/"})
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                content = resp.read()
-            if len(content) < 1024:
-                raise RuntimeError(f"suspiciously small ({len(content)} bytes)")
-            with open(path, "wb") as f:
-                f.write(content)
+            nbytes = _fetch_photo(url, path)
+            return i, fname, nbytes, None
+        except Exception as e:  # noqa: BLE001
+            return i, fname, 0, str(e)
+
+    if not jobs:
+        return ok, failed
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = [pool.submit(work, job) for job in jobs]
+        for fut in as_completed(futures):
+            i, fname, nbytes, err = fut.result()
+            if err:
+                failed.append((fname, err))
+                print(f"[{i}/{total}] FAIL {fname}: {err}", flush=True)
+                continue
             ok += 1
             if verbose:
-                print(f"[{i}/{len(photos)}] OK {fname} ({len(content)//1024} KB)")
-        except Exception as e:  # noqa: BLE001
-            failed.append((fname, str(e)))
-            print(f"[{i}/{len(photos)}] FAIL {fname}: {e}")
+                print(f"[{i}/{total}] OK {fname} ({nbytes // 1024} KB)", flush=True)
     return ok, failed
 
 
@@ -188,12 +227,13 @@ def main(argv=None):
                     help="output directory (default: ./<album name>)")
     ap.add_argument("--page-size", type=int, default=80, help="photos per API page (default 80)")
     ap.add_argument("--list-only", action="store_true", help="only list photo count, do not download")
+    ap.add_argument("--workers", type=int, default=8, help="parallel downloads (default 8)")
     args = ap.parse_args(argv)
 
     code = parse_album_code(args.album)
     print(f"Resolving album {code} ...")
     view = get_album_view(code)
-    print(f"Album: {view['name']}  (AlbumID={view['album_id']})")
+    print(f"Album: {safe_name(view['name'])}  (AlbumID={view['album_id']})")
 
     print("Listing photos (paging) ...")
     photos = list_all_photos(view, page_size=args.page_size)
@@ -204,7 +244,7 @@ def main(argv=None):
     dest = args.output or os.path.join(os.getcwd(), safe_name(view["name"]))
     dest = os.path.expanduser(dest)
     print(f"Downloading to: {dest}")
-    ok, failed = download_all(photos, dest)
+    ok, failed = download_all(photos, dest, workers=args.workers)
     print(f"\nDone: {ok}/{len(photos)} downloaded to {dest}")
     if failed:
         print(f"{len(failed)} failed:")

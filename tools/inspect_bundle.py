@@ -59,14 +59,16 @@ def main():
 
     appkey = re.search(r'appKey:"([0-9a-f]{16,})"', js)
     base = re.search(r'baseURL:"(https://[^"]+)"', js)
+    cv = re.search(r'e\.cv="(\d+)"', js)
     ak_fn = re.search(r'.{60}e\.ak=n\+t\.join\(""\)', js)
 
     print("\n=== extracted constants ===")
     print("appKey   :", appkey.group(1) if appkey else "NOT FOUND")
     print("API base :", base.group(1) if base else "NOT FOUND")
+    print("cv       :", cv.group(1) if cv else "NOT FOUND")
     print("ak algo  :", (ak_fn.group(0) if ak_fn else "NOT FOUND (ak generation may have changed)"))
 
-    print("\nUpdate APP_KEY / API_BASE at the top of pailixiang_dl.py if these differ.")
+    print("\nUpdate APP_KEY / API_BASE / CLIENT_VERSION at the top of pailixiang_dl.py if these differ.")
     if ak_fn and "e+15" not in ak_fn.group(0):
         print("WARNING: the ak algorithm looks different from the documented one — "
               "re-derive gen_ak() from the snippet above.")

@@ -49,6 +49,7 @@ Windows 上如果 `python3` 不是启动器名,请改用 `python`。
 | `-o, --output 目录` | 输出目录(默认:`./<相册名>`) |
 | `--page-size N` | 每页拉取的照片数(默认 80) |
 | `--list-only` | 只打印照片总数后退出 |
+| `--workers N` | 并行下载数（默认 8） |
 
 文件按拍摄时间排序,命名为 `序号_原文件名.jpg`。重跑时已存在(非空)的文件会被跳过,所以中断后再跑可无缝续传。
 
@@ -70,7 +71,7 @@ Windows 上如果 `python3` 不是启动器名,请改用 `python`。
 python3 tools/inspect_bundle.py <相册链接>
 ```
 
-然后更新 `pailixiang_dl.py` 顶部的 `APP_KEY` / `API_BASE`。
+然后更新 `pailixiang_dl.py` 顶部的 `APP_KEY` / `API_BASE` / `CLIENT_VERSION`。接口返回 `Code=9`（有新版本需要刷新页面）就是 `CLIENT_VERSION` 过期。
 
 ## 免责声明
 

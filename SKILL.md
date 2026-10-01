@@ -64,8 +64,10 @@ Re-extract the current constants with the bundled zero-dependency tool:
 python3 tools/inspect_bundle.py <album-url>
 ```
 
-It prints the current `appKey`, API base URL, and the `ak` algorithm snippet from the
-live JS bundle. Update `APP_KEY` / `API_BASE` at the top of `pailixiang_dl.py` to match.
+It prints the current `appKey`, API base URL, client version (`cv`), and the `ak`
+algorithm snippet from the live JS bundle. Update `APP_KEY` / `API_BASE` /
+`CLIENT_VERSION` at the top of `pailixiang_dl.py` to match. `Code=9`
+("有新版本需要刷新页面") means `CLIENT_VERSION` is stale.
 
 If the `ak` algorithm itself changed (the snippet no longer does `t[e+15]=t[e]`),
 re-derive `gen_ak()` from the printed snippet. As a last resort, rediscover the whole

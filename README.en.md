@@ -51,6 +51,7 @@ On Windows, use `python` instead of `python3` if that's your launcher.
 | `-o, --output DIR` | Output directory (default: `./<album name>`) |
 | `--page-size N` | Photos per API page (default 80) |
 | `--list-only` | Print total photo count and exit |
+| `--workers N` | Parallel downloads (default 8) |
 
 Files are named `NNN_<original-name>.jpg`, ordered by shoot time. Re-running skips files
 that already exist (non-empty), so interrupted downloads resume cleanly.
@@ -77,7 +78,7 @@ the current constants (zero dependencies, no browser):
 python3 tools/inspect_bundle.py <album-url>
 ```
 
-Then update `APP_KEY` / `API_BASE` at the top of `pailixiang_dl.py`.
+Then update `APP_KEY` / `API_BASE` / `CLIENT_VERSION` at the top of `pailixiang_dl.py`. `Code=9` ("有新版本需要刷新页面") means `CLIENT_VERSION` is stale.
 
 ## Disclaimer
 
